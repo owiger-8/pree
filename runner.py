@@ -24,16 +24,17 @@ def main():
         if 'token_type_ids' in inputs:
             del inputs['token_type_ids']
         
-        # Generate
+        # Generate with simpler settings
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=150,
+                max_new_tokens=50,  # Reduced for testing
                 do_sample=True,
-                temperature=0.7,
-                top_k=50,
+                temperature=0.8,
+                top_k=40,
                 top_p=0.9,
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
+                repetition_penalty=1.1
             )
         
         # Decode and print

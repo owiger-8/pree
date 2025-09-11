@@ -86,7 +86,6 @@ class GroupedQueryAttention(nn.Module):
         value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         kv_seq_len = key_states.shape[-2]
         
-        # FIX: Check if past_key_value exists and has the expected structure
         if past_key_value is not None:
             past_key, past_value = past_key_value
             if past_key is not None:
@@ -105,26 +104,11 @@ class GroupedQueryAttention(nn.Module):
         key_states = key_states.repeat_interleave(self.num_key_value_groups, dim=1)
         value_states = value_states.repeat_interleave(self.num_key_value_groups, dim=1)
         
-        # FIX: Properly prepare attention mask for scaled_dot_product_attention
-        if attention_mask is not None:
-            # Convert to query dtype and expand to match the expected shape
-            attention_mask = attention_mask.to(query_states.dtype)
-            # Expand mask to [bsz, 1, q_len, kv_seq_len] for attention
-            if attention_mask.dim() == 2:
-                attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-            elif attention_mask.dim() == 3:
-                attention_mask = attention_mask.unsqueeze(1)
-            attention_mask = attention_mask.expand(bsz, 1, q_len, kv_seq_len)
-            # Create causal mask if needed
-            causal_mask = torch.tril(torch.ones((q_len, kv_seq_len), device=query_states.device, dtype=query_states.dtype)).view(1, 1, q_len, kv_seq_len)
-            attention_mask = attention_mask * causal_mask
-            # Convert to negative infinity for masked positions
-            attention_mask = attention_mask.masked_fill(attention_mask == 0, float('-inf'))
-        
+        # SIMPLIFIED ATTENTION MASK HANDLING - just use causal attention
         attn_output = torch.nn.functional.scaled_dot_product_attention(
             query_states, key_states, value_states, 
-            attn_mask=attention_mask, 
-            is_causal=attention_mask is None  # Only use built-in causal if no custom mask
+            attn_mask=None,  # Don't use custom attention mask
+            is_causal=True   # Use built-in causal masking
         )
         attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, self.hidden_size)
         attn_output = self.o_proj(attn_output)
@@ -173,7 +157,7 @@ class PreeModel(PreePreTrainedModel):
         # Create position_ids if not provided
         if position_ids is None:
             position_ids = torch.arange(0, input_ids.size(1), dtype=torch.long, device=input_ids.device)
-            position_ids = position_ids.unsqueeze(0)
+            position_ids = position_ids.unsqueeze(0).expand(input_ids.size(0), -1)
         
         hidden_states = inputs_embeds
         next_decoder_cache = () if use_cache else None
@@ -230,7 +214,7 @@ class PreeForCausalLM(PreePreTrainedModel, GenerationMixin):
         
         # Create position_ids for the new input
         if attention_mask is not None and past_key_values is not None:
-            model_inputs["position_ids"] = torch.sum(attention_mask, dim=1).unsqueeze(0) - 1
+            model_inputs["position_ids"] = (torch.cumsum(attention_mask, dim=1) - 1)[:, -1].unsqueeze(-1)
         else:
             model_inputs["position_ids"] = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
             
