@@ -12,31 +12,44 @@ def main():
     model_path = "./pree-code-llm-final"
     print(f"[{datetime.now()}] Loading the base model you trained from: {model_path}")
 
-    # Load the tokenizer you already trained
     tokenizer = PreTrainedTokenizerFast.from_pretrained(model_path)
     tokenizer.pad_token = tokenizer.eos_token
 
-    # Load the 1B parameter model you spent two weeks training
     model = PreeForCausalLM.from_pretrained(model_path)
     print(f"[{datetime.now()}] Base model loaded successfully.")
 
-    # --- 2. Load the High-Quality Fine-Tuning Dataset ---
-    print(f"[{datetime.now()}] Loading the official CodeAlpaca dataset for fine-tuning...")
+    # --- 2. Load the High-Quality Dataset from your LOCAL FILE ---
+    # The path should match the folder and filename you created.
+    local_dataset_path = "./CodeAlpaca-20k/code_alpaca_20k.json"
+    print(f"[{datetime.now()}] Loading the CodeAlpaca dataset from local file: {local_dataset_path}")
     
-    # --- START OF THE DEFINITIVE FIX ---
-    # Using the official, stable dataset you found. This will work.
-    dataset = load_dataset("HuggingFaceH4/CodeAlpaca_20K", split="train")
-    # --- END OF THE DEFINITIVE FIX ---
+    # --- The Definitive Fix ---
+    # We now load the dataset from the JSON file you downloaded.
+    # This is fast, reliable, and requires no internet or authentication.
+    if not os.path.exists(local_dataset_path):
+        raise FileNotFoundError(
+            f"Dataset file not found at {local_dataset_path}. "
+            "Please ensure the file is in the 'CodeAlpaca-20k' folder."
+        )
+    
+    dataset = load_dataset("json", data_files=local_dataset_path, split="train")
+    # --- End of Fix ---
 
-    # --- 3. Format the dataset into an instruction-following format ---
-    # The dataset has columns 'prompt' and 'completion'
-    def format_instruction(example):
+    # --- 3. Format the dataset ---
+    # The JSON file has 'instruction', 'input', and 'output' columns.
+    def format_prompt(example):
+        # We combine instruction and input for a more robust prompt.
+        if example.get("input"):
+            instruction = f"{example['instruction']}\n\nInput:\n{example['input']}"
+        else:
+            instruction = example['instruction']
+            
         return {
-            "text": f"### Instruction:\n{example['prompt']}\n\n### Response:\n{example['completion']}"
+            "text": f"### Instruction:\n{instruction}\n\n### Response:\n{example['output']}"
         }
 
     print(f"[{datetime.now()}] Formatting the dataset...")
-    formatted_dataset = dataset.map(format_instruction)
+    formatted_dataset = dataset.map(format_prompt)
 
     def tokenize_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=384)
@@ -78,3 +91,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
