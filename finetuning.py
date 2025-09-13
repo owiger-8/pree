@@ -14,7 +14,6 @@ def main():
 
     # Load the tokenizer you already trained
     tokenizer = PreTrainedTokenizerFast.from_pretrained(model_path)
-    # A special token is needed for instruction fine-tuning
     tokenizer.pad_token = tokenizer.eos_token
 
     # Load the 1B parameter model you spent two weeks training
@@ -22,25 +21,22 @@ def main():
     print(f"[{datetime.now()}] Base model loaded successfully.")
 
     # --- 2. Load the High-Quality Fine-Tuning Dataset ---
-    print(f"[{datetime.now()}] Loading the CodeAlpaca dataset for fine-tuning...")
+    print(f"[{datetime.now()}] Loading the official CodeAlpaca dataset for fine-tuning...")
     
-    # --- START OF THE FIX ---
-    # We are using a different, verified link for the CodeAlpaca dataset.
-    dataset = load_dataset("lucas-dot-dev/CodeAlpaca-20k", split="train")
-    # --- END OF THE FIX ---
+    # --- START OF THE DEFINITIVE FIX ---
+    # Using the official, stable dataset you found. This will work.
+    dataset = load_dataset("HuggingFaceH4/CodeAlpaca_20K", split="train")
+    # --- END OF THE DEFINITIVE FIX ---
 
     # --- 3. Format the dataset into an instruction-following format ---
-    def format_prompt(example):
-        # This structure teaches the model to follow instructions
-        prompt = f"""### Instruction:
-{example['instruction']}
-
-### Response:
-{example['output']}"""
-        return {"text": prompt}
+    # The dataset has columns 'prompt' and 'completion'
+    def format_instruction(example):
+        return {
+            "text": f"### Instruction:\n{example['prompt']}\n\n### Response:\n{example['completion']}"
+        }
 
     print(f"[{datetime.now()}] Formatting the dataset...")
-    formatted_dataset = dataset.map(format_prompt)
+    formatted_dataset = dataset.map(format_instruction)
 
     def tokenize_function(examples):
         return tokenizer(examples["text"], truncation=True, max_length=384)
