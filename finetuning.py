@@ -23,8 +23,11 @@ def main():
 
     # --- 2. Load the High-Quality Fine-Tuning Dataset ---
     print(f"[{datetime.now()}] Loading the CodeAlpaca dataset for fine-tuning...")
-    # This dataset is very small and will download quickly
-    dataset = load_dataset("sahil2801/CodeAlpaca-20k", split="train")
+    
+    # --- START OF THE FIX ---
+    # We are using a different, verified link for the CodeAlpaca dataset.
+    dataset = load_dataset("lucas-dot-dev/CodeAlpaca-20k", split="train")
+    # --- END OF THE FIX ---
 
     # --- 3. Format the dataset into an instruction-following format ---
     def format_prompt(example):
@@ -40,22 +43,21 @@ def main():
     formatted_dataset = dataset.map(format_prompt)
 
     def tokenize_function(examples):
-        return tokenizer(examples["text"], truncation=True, max_length=384) # Using the same block size
+        return tokenizer(examples["text"], truncation=True, max_length=384)
         
     print(f"[{datetime.now()}] Tokenizing the formatted dataset...")
     tokenized_dataset = formatted_dataset.map(tokenize_function, batched=True, remove_columns=dataset.column_names)
 
     # --- 4. Configure and Run the Fine-Tuning Trainer ---
-    # The output will be saved to a new directory, leaving your original model untouched.
     output_dir = "./pree-code-llm-finetuned"
     
     training_args = TrainingArguments(
         output_dir=output_dir,
-        num_train_epochs=1,  # One pass over this high-quality data is often enough
-        per_device_train_batch_size=1, # Keep batch size low
+        num_train_epochs=1,
+        per_device_train_batch_size=1,
         gradient_accumulation_steps=8,
         save_strategy="epoch",
-        learning_rate=1e-5, # Use a slightly lower learning rate for fine-tuning
+        learning_rate=1e-5,
         fp16=True,
         optim="adamw_8bit",
         gradient_checkpointing=True,
