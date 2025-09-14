@@ -85,31 +85,16 @@ class GroupedQueryAttention(nn.Module):
         key_states = self.k_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         kv_seq_len = key_states.shape[-2]
-        
-        if past_key_value is not None:
-            past_key, past_value = past_key_value
-            if past_key is not None:
-                kv_seq_len += past_key.shape[-2]
-        
+        if past_key_value is not None: kv_seq_len += past_key_value[0].shape[-2]
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
-        
         if past_key_value is not None:
-            past_key, past_value = past_key_value
-            if past_key is not None:
-                key_states = torch.cat([past_key, key_states], dim=2)
-                value_states = torch.cat([past_value, value_states], dim=2)
-        
+            key_states = torch.cat([past_key_value[0], key_states], dim=2)
+            value_states = torch.cat([past_key_value[1], value_states], dim=2)
         present_key_value = (key_states, value_states) if use_cache else None
         key_states = key_states.repeat_interleave(self.num_key_value_groups, dim=1)
         value_states = value_states.repeat_interleave(self.num_key_value_groups, dim=1)
-        
-        # SIMPLIFIED ATTENTION MASK HANDLING - just use causal attention
-        attn_output = torch.nn.functional.scaled_dot_product_attention(
-            query_states, key_states, value_states, 
-            attn_mask=None,  # Don't use custom attention mask
-            is_causal=True   # Use built-in causal masking
-        )
+        attn_output = torch.nn.functional.scaled_dot_product_attention(query_states, key_states, value_states, attn_mask=attention_mask, is_causal=True)
         attn_output = attn_output.transpose(1, 2).contiguous().reshape(bsz, q_len, self.hidden_size)
         attn_output = self.o_proj(attn_output)
         return attn_output, present_key_value
@@ -154,11 +139,6 @@ class PreeModel(PreePreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         if inputs_embeds is None: inputs_embeds = self.embed_tokens(input_ids)
         
-        # Create position_ids if not provided
-        if position_ids is None:
-            position_ids = torch.arange(0, input_ids.size(1), dtype=torch.long, device=input_ids.device)
-            position_ids = position_ids.unsqueeze(0).expand(input_ids.size(0), -1)
-        
         hidden_states = inputs_embeds
         next_decoder_cache = () if use_cache else None
 
@@ -180,6 +160,10 @@ class PreeForCausalLM(PreePreTrainedModel, GenerationMixin):
     def __init__(self, config):
         super().__init__(config); self.model = PreeModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        # --- START OF THE DEFINITIVE FIX ---
+        # We add the attribute the Trainer is looking for.
+        self.gradient_checkpointing = False
+        # --- END OF THE DEFINITIVE FIX ---
         self.post_init()
     def get_input_embeddings(self): return self.model.embed_tokens
     def set_input_embeddings(self, value): self.model.embed_tokens = value
@@ -211,16 +195,8 @@ class PreeForCausalLM(PreePreTrainedModel, GenerationMixin):
             "use_cache": kwargs.get("use_cache"),
             "attention_mask": attention_mask,
         }
-        
-        # Create position_ids for the new input
-        if attention_mask is not None and past_key_values is not None:
-            model_inputs["position_ids"] = (torch.cumsum(attention_mask, dim=1) - 1)[:, -1].unsqueeze(-1)
-        else:
-            model_inputs["position_ids"] = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
-            
         return model_inputs
 
 if __name__ == '__main__':
     config = PreeConfig()
     model = PreeForCausalLM(config)
-    print(f"Model created with ~{sum(p.numel() for p in model.parameters())/1e9:.2f}B parameters.")
