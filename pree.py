@@ -139,6 +139,20 @@ class PreeModel(PreePreTrainedModel):
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         if inputs_embeds is None: inputs_embeds = self.embed_tokens(input_ids)
         
+        # --- START OF THE DEFINITIVE FIX ---
+        # We check for the attention_mask and convert it to the correct float dtype
+        # before it gets used, preventing the RuntimeError.
+        if attention_mask is not None:
+            if attention_mask.dtype != torch.bool:
+                attention_mask = (1.0 - attention_mask.to(inputs_embeds.dtype)) * torch.finfo(inputs_embeds.dtype).min
+            attention_mask = attention_mask[:, None, None, :]
+        # --- END OF THE DEFINITIVE FIX ---
+
+        past_key_values_length = past_key_values[0][0].shape[2] if past_key_values is not None else 0
+        if position_ids is None:
+            device = input_ids.device if input_ids is not None else inputs_embeds.device
+            position_ids = torch.arange(past_key_values_length, input_ids.shape[1] + past_key_values_length, dtype=torch.long, device=device).unsqueeze(0)
+        
         hidden_states = inputs_embeds
         next_decoder_cache = () if use_cache else None
 
@@ -160,10 +174,7 @@ class PreeForCausalLM(PreePreTrainedModel, GenerationMixin):
     def __init__(self, config):
         super().__init__(config); self.model = PreeModel(config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        # --- START OF THE DEFINITIVE FIX ---
-        # We add the attribute the Trainer is looking for.
         self.gradient_checkpointing = False
-        # --- END OF THE DEFINITIVE FIX ---
         self.post_init()
     def get_input_embeddings(self): return self.model.embed_tokens
     def set_input_embeddings(self, value): self.model.embed_tokens = value
@@ -200,3 +211,4 @@ class PreeForCausalLM(PreePreTrainedModel, GenerationMixin):
 if __name__ == '__main__':
     config = PreeConfig()
     model = PreeForCausalLM(config)
+    print(f"Model created with ~{sum(p.numel() for p in model.parameters())/1e9:.2f}B parameters.")
