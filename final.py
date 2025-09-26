@@ -35,7 +35,8 @@ def train_tokenizer(dataset, vocab_size=65536):
 def prepare_dataset(block_size=384): # We are keeping the smaller block size
     print(f"[{datetime.now()}] Loading and preparing dataset...")
 
-    auth_token = "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" 
+    auth_token = "" #enter your token here
+    
 
     dataset_stream = load_dataset(
         "bigcode/the-stack-dedup", 
